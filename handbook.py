@@ -1,13 +1,13 @@
 """
-Inside conditions.json, you will see a subset of UNSW courses mapped to their 
+Inside conditions.json, you will see a subset of UNSW courses mapped to their
 corresponding text conditions. We have slightly modified the text conditions
 to make them simpler compared to their original versions.
 
-Your task is to complete the is_unlocked function which helps students determine 
-if their course can be taken or not. 
+Your task is to complete the is_unlocked function which helps students determine
+if their course can be taken or not.
 
 We will run our hidden tests on your submission and look at your success rate.
-We will only test for courses inside conditions.json. We will also look over the 
+We will only test for courses inside conditions.json. We will also look over the
 code by eye.
 
 NOTE: We do not expect you to come up with a perfect solution. We are more interested
@@ -17,60 +17,49 @@ import json
 from abc import ABC, abstractmethod
 import re
 
-class tree_node(ABC):
-    @abstractmethod
-    def check(self, courses_list):
-        pass
+class TreeNode(ABC):
+    def __init__(self) -> None:
+        self.left = None
+        self.right = None
 
-# Subject node is always a leaf in a tree
-class subject_node(tree_node):
-    def __init__(self, course_code=""):
+    def add_left(self, node: 'TreeNode') -> None:
+        self.left = node
+
+    def add_right(self, node: 'TreeNode') -> None:
+        self.right = node
+
+    @abstractmethod
+    def check(self, courses_list: list) -> bool:
+        raise NotImplementedError()
+
+
+class CourseCode(TreeNode):
+    def __init__(self, course_code: str) -> None:
+        super().__init__()
         self.course_code = course_code
 
-    def check(self, courses_list):
+    def check(self, courses_list: list) -> bool:
         for course in courses_list:
             if course == self.course_code:
                 return True
         return False
 
-# Gate nodes can add a left and right children and are never leaves in a tree
-class gate_node(tree_node):
-    @abstractmethod
-    def add_left(self, node1):
-        pass
 
-    @abstractmethod
-    def add_right(self, node2):
-        pass
+class AndNode(TreeNode):
+    def check(self, courses_list: list) -> bool:
+        return self.left.check(courses_list) and self.right.check(courses_list)
 
-class and_node(gate_node):
-    def add_left(self, node1):
-        self.node1 = node1
 
-    def add_right(self, node2):
-        self.node2 = node2
+class OrNode(TreeNode):
+    def check(self, courses_list: list) -> bool:
+        return self.left.check(courses_list) or self.right.check(courses_list)
 
-    def check(self, courses_list):
-        return self.node1.check(courses_list) and self.node2.check(courses_list)
-
-class or_node(gate_node):
-    def add_left(self, node1):
-        self.node1 = node1
-
-    def add_right(self, node2):
-        self.node2 = node2
-
-    def check(self, courses_list):
-        return self.node1.check(courses_list) or self.node2.check(courses_list)
-
-class credit_in_list(tree_node):
+class CreditList(TreeNode):
     def __init__(self, units, course_list):
+        super().__init__()
         self.units = units
         self.course_list = course_list
-    
-    def len_list(self):
-        return len(self.course_list)
-    
+
     def check(self, courses_list):
         check = 0
         for node in self.course_list:
@@ -80,15 +69,17 @@ class credit_in_list(tree_node):
             return True
         return False
 
-class credit_in_units(tree_node):
+class CreditCount(TreeNode):
     def __init__(self, units):
+        super().__init__()
         self.units = units
 
     def check(self, courses_list):
         return len(courses_list) * 6 >= self.units
 
-class credit_in_level(tree_node):
+class CreditLevel(TreeNode):
     def __init__(self, level, units, course_area=""):
+        super().__init__()
         self.level = level
         self.units = units
         self.course_area = course_area
@@ -103,7 +94,6 @@ class credit_in_level(tree_node):
             for course in courses_list:
                 if re.match(f"({self.course_area + str(self.level)})", course):
                     check += 6
-        print(f"({self.course_area + str(self.level)})")
         if check >= self.units:
             return True
         return False
@@ -114,9 +104,9 @@ with open("./conditions.json") as f:
     f.close()
 
 def is_unlocked(courses_list, target_course):
-    """Given a list of course codes a student has taken, return true if the target_course 
+    """Given a list of course codes a student has taken, return true if the target_course
     can be unlocked by them.
-    
+
     You do not have to do any error checking on the inputs and can assume that
     the target_course always exists inside conditions.json
 
@@ -128,31 +118,30 @@ def is_unlocked(courses_list, target_course):
     condition = preprocess(CONDITIONS[target_course])
     # print("========PREPROCESSED========")
     # print(condition)
-    
+
     # Process Condition
     processed = process(condition)
     # print("========PROCESSED========")
     # print(processed)
-    
+
     # Transform To Tree
-    # Tree structure: 
+    # Tree structure:
     # Parents: AND/ OR
     # Leaves: SUBJECT/ UNITS
     root = transform(processed)
     # print("========TRANSFORMED========")
     # print(root)
-    
+
     # Evaluate Condition
     # Recursive-like evaluation of the tree's nodes
     if root is None:
         return True
-    else:
-        return root.check(courses_list)
+    return root.check(courses_list)
 
-def preprocess(input):
+def preprocess(condition_string):
     condition = ""
     current_word = ""
-    for letter in input + " ":
+    for letter in condition_string + " ":
         if letter == "(" or letter == ")" or letter == " " or letter == "," or letter == ".":
             if re.match("^[0-9]{1,3}$", current_word):
                 condition += current_word + " "
@@ -182,17 +171,17 @@ def process(condition):
     while idx < len(tokens):
         keyword = tokens[idx]
         if re.match("[A-Z]{4}[0-9]{4}", keyword):
-            stack[-1].append(subject_node(keyword))
+            stack[-1].append(CourseCode(keyword))
         elif re.match("[0-9]{1,3}", keyword):  # assumption that there are no random numbers
             if tokens[idx + 1] == "UNITS":  # each number is succeeded by UNITS (LEVEL/(...))
                 node = create_credit_node(tokens[idx:])
                 stack[-1].append(node)
-                if type(node) is credit_in_list:
-                    idx += node.len_list() + 3
+                if type(node) is CreditList:
+                    idx += len(node.course_list) + 3
         elif keyword == "OR":
-            stack[-1].append(or_node())
+            stack[-1].append(OrNode())
         elif keyword == "AND":
-            stack[-1].append(and_node())
+            stack[-1].append(AndNode())
         elif keyword == "(":
             stack.append([])
         elif keyword == ")":
@@ -207,34 +196,30 @@ def create_credit_node(tokens):
         if tokens[2] == "LEVEL":
             level = int(tokens[3])
             if len(tokens) > 4 and re.match("[A-Z]{4}", tokens[4]):
-                return credit_in_level(level, units, tokens[4])
-            else:
-                return credit_in_level(level, units)
+                return CreditLevel(level, units, tokens[4])
+            return CreditLevel(level, units)
         elif tokens[2] == "(":
             idx = 3
             course_list = []
             while tokens[idx] != ")" and idx < len(tokens):
-                course_list.append(subject_node(tokens[idx]))
+                course_list.append(CourseCode(tokens[idx]))
                 idx += 1
-            return credit_in_list(units, course_list)
-    return credit_in_units(units)
+            return CreditList(units, course_list)
+    return CreditCount(units)
 
 def transform(node_list):
     array_size = len(node_list)
     if array_size == 0:
         return None
-    elif array_size == 1:
-        return node_list[0]
-    else:
-        while array_size > 1:
-            if type(node_list[0]) is list:
-                node_list[0] = transform(node_list[0])
-            if type(node_list[2]) is list:
-                node_list[2] = transform(node_list[2])
-            if issubclass(type(node_list[1]), gate_node):
-                left_child = node_list.pop(0)
-                right_child = node_list.pop(1)
-                node_list[0].add_left(left_child)
-                node_list[0].add_right(right_child)
-            array_size -= 2
-        return node_list[0]
+    while array_size > 1:
+        if type(node_list[0]) is list:
+            node_list[0] = transform(node_list[0])
+        if type(node_list[2]) is list:
+            node_list[2] = transform(node_list[2])
+        if issubclass(type(node_list[1]), AndNode) or issubclass(type(node_list[1]), OrNode):
+            left_child = node_list.pop(0)
+            right_child = node_list.pop(1)
+            node_list[0].add_left(left_child)
+            node_list[0].add_right(right_child)
+        array_size -= 2
+    return node_list[0]
