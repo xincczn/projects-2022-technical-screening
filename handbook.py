@@ -18,49 +18,64 @@ from abc import ABC, abstractmethod
 import re
 
 class TreeNode(ABC):
+    """Tree class that can add left and right tree nodes.
+    Includes an abstract check() function that will evaluate the node.
+    """
     def __init__(self) -> None:
         self.left = None
         self.right = None
 
     def add_left(self, node: 'TreeNode') -> None:
+        """Adds node as left child."""
         self.left = node
 
     def add_right(self, node: 'TreeNode') -> None:
+        """Adds node as right child."""
         self.right = node
 
     @abstractmethod
     def check(self, courses_list: list) -> bool:
+        """Evaluates the node using given course list return T or F."""
         raise NotImplementedError()
 
 
 class CourseCode(TreeNode):
+    """CourseCode node holds in a singular course code string.
+    Check() will evaluate if the course code is found within given list of codes.
+    """
     def __init__(self, course_code: str) -> None:
         super().__init__()
         self.course_code = course_code
 
     def check(self, courses_list: list) -> bool:
-        for course in courses_list:
-            if course == self.course_code:
-                return True
-        return False
+        return self.course_code in courses_list
 
 
 class AndNode(TreeNode):
+    """AndNode is a gate node that will evaluate its two children based on its
+    gate logic."""
     def check(self, courses_list: list) -> bool:
         return self.left.check(courses_list) and self.right.check(courses_list)
 
 
 class OrNode(TreeNode):
+    """OrNode is a gate node that will evaluate its two children based on its
+    gate logic.
+    """
     def check(self, courses_list: list) -> bool:
         return self.left.check(courses_list) or self.right.check(courses_list)
 
 class CreditList(TreeNode):
-    def __init__(self, units, course_list):
+    """CreditList node holds unit count and a list of courses.
+    Check() will evaluate if a there is a minimum amount of matching
+    course codes between a given and own list.
+    """
+    def __init__(self, units: int, course_list: list) -> None:
         super().__init__()
         self.units = units
         self.course_list = course_list
 
-    def check(self, courses_list):
+    def check(self, courses_list: list) -> bool:
         check = 0
         for node in self.course_list:
             if node.check(courses_list):
@@ -70,21 +85,28 @@ class CreditList(TreeNode):
         return False
 
 class CreditCount(TreeNode):
-    def __init__(self, units):
+    """CreditCount node holds unit count.
+    Check() will evaluate if a given list has a minimum amount of courses.
+    """
+    def __init__(self, units: int):
         super().__init__()
         self.units = units
 
-    def check(self, courses_list):
+    def check(self, courses_list: list) -> bool:
         return len(courses_list) * 6 >= self.units
 
 class CreditLevel(TreeNode):
-    def __init__(self, level, units, course_area=""):
+    """CreditLevel node holds unit count, course level number and course area.
+    Check() will evaluate if there is a minimum amount of courses in the given
+    list that fit the criteria.
+    """
+    def __init__(self, level: int, units: int, course_area: str = "") -> None:
         super().__init__()
         self.level = level
         self.units = units
         self.course_area = course_area
 
-    def check(self, courses_list):
+    def check(self, courses_list: list) -> bool:
         check = 0
         if self.course_area == "":
             for course in courses_list:
@@ -116,21 +138,15 @@ def is_unlocked(courses_list, target_course):
     # Plan:
     # Preprocess Condition
     condition = preprocess(CONDITIONS[target_course])
-    # print("========PREPROCESSED========")
-    # print(condition)
 
     # Process Condition
     processed = process(condition)
-    # print("========PROCESSED========")
-    # print(processed)
 
     # Transform To Tree
     # Tree structure:
     # Parents: AND/ OR
-    # Leaves: SUBJECT/ UNITS
+    # Leaves: SUBJECT/ CREDITS
     root = transform(processed)
-    # print("========TRANSFORMED========")
-    # print(root)
 
     # Evaluate Condition
     # Recursive-like evaluation of the tree's nodes
@@ -139,10 +155,13 @@ def is_unlocked(courses_list, target_course):
     return root.check(courses_list)
 
 def preprocess(condition_string):
+    """Preprocesses the string condition,
+    generating a new string removing noise.
+    """
     condition = ""
     current_word = ""
     for letter in condition_string + " ":
-        if letter == "(" or letter == ")" or letter == " " or letter == "," or letter == ".":
+        if letter in ('(', ')', ' ', ',', '.'):
             if re.match("^[0-9]{1,3}$", current_word):
                 condition += current_word + " "
             elif re.match("(?i)LEVEL", current_word):
@@ -158,13 +177,14 @@ def preprocess(condition_string):
             elif re.match("(?i)UNITS?", current_word):
                 condition += "UNITS "
             current_word = ""
-            if letter == "(" or letter == ")":
+            if letter in ('(', ')'):
                 condition += letter + " "
         else:
             current_word += letter
     return condition
 
 def process(condition):
+    """Process condition string, generating a list/s of tree nodes."""
     stack = [[]]
     tokens = condition.split()
     idx = 0
@@ -176,7 +196,7 @@ def process(condition):
             if tokens[idx + 1] == "UNITS":  # each number is succeeded by UNITS (LEVEL/(...))
                 node = create_credit_node(tokens[idx:])
                 stack[-1].append(node)
-                if type(node) is CreditList:
+                if isinstance(node, CreditList):
                     idx += len(node.course_list) + 3
         elif keyword == "OR":
             stack[-1].append(OrNode())
@@ -191,32 +211,38 @@ def process(condition):
     return stack[-1]
 
 def create_credit_node(tokens):
+    """Given a substring, creates and returns the appropriate credit node."""
     units = int(tokens[0])
-    if len(tokens) > 2:
-        if tokens[2] == "LEVEL":
-            level = int(tokens[3])
-            if len(tokens) > 4 and re.match("[A-Z]{4}", tokens[4]):
-                return CreditLevel(level, units, tokens[4])
-            return CreditLevel(level, units)
-        elif tokens[2] == "(":
-            idx = 3
-            course_list = []
-            while tokens[idx] != ")" and idx < len(tokens):
-                course_list.append(CourseCode(tokens[idx]))
-                idx += 1
-            return CreditList(units, course_list)
+    token_length = len(tokens)
+    if token_length <= 2:
+        return CreditCount(units)
+    if tokens[2] == "LEVEL":
+        level = int(tokens[3])
+        if token_length > 4 and re.match("[A-Z]{4}", tokens[4]):
+            return CreditLevel(level, units, tokens[4])
+        return CreditLevel(level, units)
+    if tokens[2] == "(":
+        idx = 3
+        course_list = []
+        while tokens[idx] != ")" and idx < token_length:
+            course_list.append(CourseCode(tokens[idx]))
+            idx += 1
+        return CreditList(units, course_list)
     return CreditCount(units)
 
+
 def transform(node_list):
+    """Constructs a tree from the node list, recursing on any lists found.
+    Until there is only one node left (root)."""
     array_size = len(node_list)
     if array_size == 0:
         return None
     while array_size > 1:
-        if type(node_list[0]) is list:
+        if isinstance(node_list[0], list):
             node_list[0] = transform(node_list[0])
-        if type(node_list[2]) is list:
+        if isinstance(node_list[2], list):
             node_list[2] = transform(node_list[2])
-        if issubclass(type(node_list[1]), AndNode) or issubclass(type(node_list[1]), OrNode):
+        if isinstance(node_list[1], (AndNode, OrNode)):
             left_child = node_list.pop(0)
             right_child = node_list.pop(1)
             node_list[0].add_left(left_child)
